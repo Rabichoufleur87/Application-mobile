@@ -30,11 +30,11 @@
   const fmtShort = d => `${d.getDate()} ${MONTHS_S[d.getMonth()]}`;
   const relDay = d => { const n = diffDays(today(), d); return n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : n === -1 ? 'hier' : n > 1 && n < 7 ? DAY_NAMES[d.getDay()] : `le ${fmtShort(d)}`; };
   const inDays = n => n === 0 ? 'aujourd’hui' : n === 1 ? 'demain' : `dans ${n} jours`;
-  const NBSP = ' ';
+  const NBSP = '\u00a0';
   const dots = h => h.replace(/\.\./g, '.');
   const EUR = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
   const EUR0 = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-  const eur = (n, dec = true) => (dec ? EUR : EUR0).format(Math.abs(n) < 0.005 ? 0 : n).replace(/[   ]/g, NBSP);
+  const eur = (n, dec = true) => (dec ? EUR : EUR0).format(Math.abs(n) < 0.005 ? 0 : n).replace(/[\u202f\u00a0 ]/g, NBSP);
   const signed = n => (n > 0 ? '+' : n < 0 ? '−' : '') + eur(Math.abs(n));
   const vibrate = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) { /* ignore */ } };
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -279,7 +279,7 @@
     M = null;
   }
   function parseNum(s) {
-    s = String(s || '').replace(/[\s  €]|EUR/g, '');
+    s = String(s || '').replace(/[\s\u00a0\u202f€]|EUR/g, '');
     if (!s) return NaN;
     if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/,/g, '');
     return parseFloat(s);
@@ -304,7 +304,7 @@
     return out;
   }
   function parseCSV(text) {
-    text = String(text).replace(/^﻿/, '');
+    text = String(text).replace(/^\uFEFF/, '');
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (!lines.length) throw new Error('Le fichier est vide.');
     const counts = [';', ',', '\t'].map(d => [d, lines.slice(0, 5).reduce((s, l) => s + l.split(d).length, 0)]).sort((a, b) => b[1] - a[1]);
@@ -398,12 +398,12 @@
     root.querySelectorAll('[data-count]').forEach(el => {
       const target = +el.dataset.count, dec = el.dataset.dec !== '0';
       const t0 = performance.now(), dur = 1000;
-      const fmt = v => dec ? EUR.format(v).replace(/\s?€$/, '').replace(/[   ]/g, NBSP) : String(Math.round(v));
+      const fmt = v => dec ? EUR.format(v).replace(/\s?€$/, '').replace(/[\u202f\u00a0 ]/g, NBSP) : String(Math.round(v));
       const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(target * e); if (k < 1) requestAnimationFrame(step); };
       requestAnimationFrame(step);
     });
   }
-  const numOnly = v => EUR.format(v).replace(/\s?€$/, '').replace(/[   ]/g, NBSP);
+  const numOnly = v => EUR.format(v).replace(/\s?€$/, '').replace(/[\u202f\u00a0 ]/g, NBSP);
 
   /* ================= Vue : Aujourd'hui ================= */
   function viewToday(m) {
@@ -737,7 +737,7 @@
     const fr = new FileReader();
     fr.onload = () => {
       let text = fr.result;
-      if (/�/.test(text)) { const fr2 = new FileReader(); fr2.onload = () => tryParse(fr2.result, targetId); fr2.readAsText(file, 'windows-1252'); return; }
+      if (/\uFFFD/.test(text)) { const fr2 = new FileReader(); fr2.onload = () => tryParse(fr2.result, targetId); fr2.readAsText(file, 'windows-1252'); return; }
       tryParse(text, targetId);
     };
     fr.readAsText(file, 'utf-8');
