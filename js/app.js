@@ -169,7 +169,7 @@
   function load() { try { const r = localStorage.getItem(STORE_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* stockage indisponible */ } }
   let S = load();
-  const U = { tab: 'today', seg: 'week', enter: true, wx: null, stores: null, storesLive: false, ob: null, pendingRender: false };
+  const U = { open: new Set(), closed: new Set(), tab: 'today', seg: 'week', enter: true, wx: null, stores: null, storesLive: false, ob: null, pendingRender: false };
 
   const ACTIVITIES = {
     Piscine: { icon: 'swim', bag: 'Sac de piscine', kit: 'maillot, serviette, bonnet' },
@@ -598,6 +598,7 @@
     app.innerHTML = `
       <div class="shell">
         <aside class="sidebar">${logo(true)}
+          <button class="side-search" data-act="openSearch">${ic('search')}<span>Rechercher</span><kbd>/</kbd></button>
           <nav class="side-nav" aria-label="Navigation">${TABS.map(([id, l, i]) => `<button class="side-tab" data-act="tab" data-tab="${id}">${ic(i)}<span>${l}</span><span class="badge" data-badge="${id}" hidden></span></button>`).join('')}</nav>
           <div class="side-foot">
             <button class="btn sm" data-act="previewBrief" data-type="morning">${ic('sun')} Brief du matin</button>
@@ -657,7 +658,8 @@
       rappels: [`${plural(S.reminders.filter(r => r.active !== false).length, 'rappel actif', 'rappels actifs')}`, 'Rappels'],
       foyer: [`${plural(S.members.length, 'membre')}`, 'Mon foyer'],
     }[U.tab];
-    return `<div style="min-width:0"><div class="eyebrow date">${t[0]}</div><h1>${t[1]}</h1></div><div class="topbar-actions">${wx}${avatar}</div>`;
+    const search = `<button class="pill-btn icon-only" data-act="openSearch" aria-label="Rechercher">${ic('search')}</button>`;
+    return `<div style="min-width:0"><div class="eyebrow date">${t[0]}</div><h1>${t[1]}</h1></div><div class="topbar-actions">${search}${wx}${avatar}</div>`;
   }
   function animateCounts(root) {
     root.querySelectorAll('[data-count]').forEach(el => {
@@ -693,44 +695,77 @@
     const C = 2 * Math.PI * 27, d = +r.dataset.done, t = +r.dataset.total;
     r.querySelector('.bar').style.strokeDashoffset = t ? C * (1 - d / t) : C;
   }
+  const fmtDur = m => m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ' ' + pad(m % 60) : ''}`;
+  function nextShopDay() { const p = S.profile; for (let i = 0; i < 8; i++) { const d = addDays(today(), i); if (p.shopDays.includes(d.getDay())) return d; } return null; }
+  function glanceTiles() {
+    const t = today(), done = doneSet(t), tiles = [];
+    const tonight = binsOn(addDays(t, 1)), todayB = binsOn(t);
+    if (tonight.length) {
+      const b = tonight[0], T = D.BIN_TYPES[b.id], ok = done.has('b:' + b.id);
+      tiles.push({ act: 'tab', data: 'data-tab="collectes"', icon: ok ? 'check' : 'trash', bg: T.color, fg: binFg(b.id), label: 'Poubelle ce soir', value: ok ? 'Bac sorti' : `Bac ${T.short.toLowerCase()}`, sub: ok ? 'Collecte demain matin' : 'À sortir avant de dormir', alert: !ok });
+    } else if (todayB.length) {
+      const T = D.BIN_TYPES[todayB[0].id];
+      tiles.push({ act: 'tab', data: 'data-tab="collectes"', icon: 'trash', bg: T.color, fg: binFg(todayB[0].id), label: 'Poubelle', value: `Collecte ${T.short.toLowerCase()}`, sub: 'Pense à rentrer le bac ce soir' });
+    } else {
+      const nx = nextCollections(t)[0];
+      tiles.push({ act: 'tab', data: 'data-tab="collectes"', icon: 'trash', bg: nx ? D.BIN_TYPES[nx.bin.id].color : '', fg: nx ? binFg(nx.bin.id) : '', label: 'Prochaine collecte', value: nx ? relDay(nx.date) : 'Aucune', sub: nx ? `Bac ${D.BIN_TYPES[nx.bin.id].short.toLowerCase()}` : 'Règle tes jours' });
+    }
+    if (U.wx) {
+      const [icn, lab] = WX(U.wx.now.code);
+      tiles.push({ act: 'scrollTo', data: 'data-target="wx-card"', icon: icn, label: 'Météo', value: `${U.wx.now.t}° · ${lab}`, sub: U.wx.rainToday != null ? `Pluie vers ${U.wx.rainToday}h, prends un parapluie` : `Entre ${U.wx.today.min}° et ${U.wx.today.max}°`, alert: U.wx.rainToday != null });
+    } else tiles.push({ act: 'scrollTo', data: 'data-target="wx-card"', icon: 'cloud', label: 'Météo', value: 'Chargement…', sub: '' });
+    const n = S.list.filter(i => !i.got).length, sd = nextShopDay();
+    tiles.push({ act: 'tab', data: 'data-tab="courses"', icon: 'cart', label: 'Courses', value: n ? plural(n, 'article') : 'Liste vide', sub: sd ? `Prochaines courses : ${relDay(sd).toLowerCase()}` : 'Liste partagée' });
+    const c = countdowns()[0];
+    tiles.push({ act: 'goSeg', data: 'data-seg="deadlines"', icon: c ? c.icon : 'calendar', label: 'Prochaine échéance', value: c ? (c.in === 0 ? 'Aujourd’hui' : `Dans ${plural(c.in, 'jour')}`) : 'Aucune', sub: c ? c.title : '', alert: c && c.in <= 7 });
+    return `<section class="glance" aria-label="En un coup d’œil">${tiles.map(x => `<button class="g-tile ${x.alert ? 'alert' : ''}" data-act="${x.act}" ${x.data}><span class="g-icon" style="${x.bg ? `background:${x.bg};color:${x.fg}` : ''}">${ic(x.icon)}</span><span class="eyebrow">${x.label}</span><strong>${esc(x.value)}</strong><span class="g-sub">${esc(x.sub)}</span></button>`).join('')}</section>`;
+  }
+  function nowCard(items, done) {
+    const nm = nowMin(), pending = items.filter(i => !done.has(i.id));
+    const late = pending.filter(i => toMin(i.time) < nm - 15), next = pending.find(i => toMin(i.time) >= nm - 15);
+    if (!pending.length) {
+      const tm = agendaFor(addDays(today(), 1))[0];
+      return `<section class="card now-card calm"><div class="now-main"><span class="row-icon now-icon" style="background:var(--ok-soft);color:var(--ok)">${ic('check')}</span><div><span class="now-when" style="color:var(--ok)">C’est tout pour aujourd’hui</span><h2>${items.length ? 'Tout est fait, bravo' : 'Journée libre'}</h2><p class="small muted">${tm ? `Demain ${tm.time} · ${esc(tm.title)}` : 'Rien de prévu demain non plus.'}</p></div></div></section>`;
+    }
+    const it = next || late[late.length - 1], diff = toMin(it.time) - nm;
+    const when = diff < -15 ? `En retard de ${fmtDur(-diff)}` : diff <= 0 ? 'Maintenant' : `Dans ${fmtDur(diff)}`;
+    const st = it.bg ? `background:${it.bg};color:${it.fg}` : it.signal ? 'background:var(--signal-soft);color:var(--warn)' : 'background:var(--accent-soft);color:var(--accent)';
+    return `<section class="card now-card ${diff < -15 ? 'late' : ''}" data-id="${esc(it.id)}" data-day="${key(today())}">
+      <div class="now-top"><span class="eyebrow">Prochaine étape · ${it.time}</span>${late.length && next ? `<button class="tag signal" data-act="scrollTo" data-target="day-card">${late.length} en retard</button>` : ''}</div>
+      <div class="now-main"><span class="row-icon now-icon" style="${st}">${ic(it.icon)}</span><div style="min-width:0"><span class="now-when">${when}</span><h2>${esc(it.title)}</h2>${it.sub ? `<p class="small muted" style="margin-top:4px">${esc(it.sub)}</p>` : ''}</div></div>
+      <div class="now-actions"><button class="btn primary" data-act="nowDone">${ic('check')} C’est fait</button><button class="btn" data-act="nowSnooze" aria-label="Décaler d’une heure">${ic('alarm')} Dans 1 h</button></div></section>`;
+  }
+  function dayTimeline(items, d, done, opts = {}) {
+    const groups = [['Matin', 0, 720, 'sun'], ['Après-midi', 720, 1080, 'cloudSun'], ['Soir', 1080, 1440, 'moon']];
+    const pend = items.filter(i => !done.has(i.id)), fin = items.filter(i => done.has(i.id));
+    let html = groups.map(([l, a, b, icn]) => {
+      const g = pend.filter(i => toMin(i.time) >= a && toMin(i.time) < b);
+      return g.length ? `<div class="tl-group"><div class="tl-head">${ic(icn)}<span>${l}</span><span class="tl-n">${g.length}</span></div><div class="timeline">${g.map(i => rowHtml(i, d, done, opts)).join('')}</div></div>` : '';
+    }).join('');
+    if (!pend.length && fin.length) html += `<p class="small muted" style="padding:4px 6px">Tout est fait pour ${opts.today ? 'aujourd’hui' : 'ce jour-là'}.</p>`;
+    if (fin.length) { const k = 'done-' + key(d); html += `<details class="tl-done" data-k="${k}" ${U.open.has(k) ? 'open' : ''}><summary>${ic('check')}<span>Fait</span><span class="tl-n">${fin.length}</span></summary><div class="timeline">${fin.map(i => rowHtml(i, d, done, opts)).join('')}</div></details>`; }
+    return html;
+  }
   function viewToday() {
     const t = today(), now = new Date(), items = agendaFor(t), done = doneSet(t);
     const evening = now.getHours() >= 15;
     const b = buildBrief(evening);
     const nDone = items.filter(i => done.has(i.id)).length, left = items.length - nDone;
 
-    const brief = `<section class="brief">
+    const brief = `<section class="brief ${U.briefOpen ? 'expanded' : ''}">
       <div class="eyebrow"><span class="ding"></span>${evening ? 'Brief du soir' : 'Brief du matin'} · ${b.time}</div>
       <h2>${b.title}</h2>
-      <ul class="brief-list">${b.lines.map(l => `<li><span class="bi">${ic(l.icon)}</span><span>${l.html}</span></li>`).join('')}</ul>
+      <ul class="brief-list">${b.lines.map((l, i) => `<li class="${i > 2 ? 'more' : ''}"><span class="bi">${ic(l.icon)}</span><span>${l.html}</span></li>`).join('')}</ul>
       <div class="brief-actions">
+        ${b.lines.length > 3 ? `<button data-act="briefMore">${U.briefOpen ? 'Réduire' : `Voir ${b.lines.length - 3 > 1 ? `les ${b.lines.length - 3} autres` : 'le reste'}`}</button>` : ''}
         <button class="primary" data-act="speak">${ic('volume')} Écouter</button>
-        <button data-act="previewBrief" data-type="${evening ? 'evening' : 'morning'}">${ic('bell')} Voir la notification</button>
+        <button data-act="previewBrief" data-type="${evening ? 'evening' : 'morning'}">${ic('bell')} Notification</button>
       </div></section>`;
 
-    let binCard = '';
-    const tonight = binsOn(addDays(t, 1)), todayBins = binsOn(t);
-    if (tonight.length) {
-      const bn = tonight[0], T = D.BIN_TYPES[bn.id], isDone = done.has('b:' + bn.id);
-      binCard = `<section class="card bin-card ${isDone ? 'gone' : ''}" id="bin-card">
-        ${binSvg(bn.id)}
-        <div class="body"><span class="eyebrow">Ce soir · collecte demain matin</span>
-          <h3>Poubelle ${T.short.toLowerCase()}${tonight.length > 1 ? ` + ${tonight.slice(1).map(x => D.BIN_TYPES[x.id].short.toLowerCase()).join(' + ')}` : ''}</h3>
-          <p class="small muted">${T.label}. ${esc(T.tip)}</p>
-          <button class="btn ${isDone ? '' : 'dark'} sm" data-act="binOut" data-id="b:${bn.id}" ${isDone ? 'disabled' : ''}>${isDone ? `${ic('check')} Bac sorti` : `${ic('check')} C’est sorti`}</button></div>
-      </section>`;
-    } else if (todayBins.length) {
-      const T = D.BIN_TYPES[todayBins[0].id];
-      binCard = `<section class="card bin-card">${binSvg(todayBins[0].id, 48)}<div class="body"><span class="eyebrow">Collecte aujourd’hui</span><h3>Poubelle ${T.short.toLowerCase()}</h3><p class="small muted">Pense à rentrer le bac ce soir.</p></div></section>`;
-    } else {
-      const nx = nextCollections(t)[0];
-      if (nx) binCard = `<section class="card bin-card">${binSvg(nx.bin.id, 44)}<div class="body"><span class="eyebrow">Prochaine collecte</span><h3>${relDay(nx.date)} · ${D.BIN_TYPES[nx.bin.id].short.toLowerCase()}</h3><p class="small muted">Tilt te prévient la veille à ${S.profile.briefs.evening}.</p></div></section>`;
-    }
-
-    const timeline = `<section class="card">
+    const timeline = `<section class="card" id="day-card">
       <div class="card-head"><div><span class="eyebrow">Ta journée</span><h2 id="left-title">${left ? `Encore ${plural(left, 'chose')} à faire` : 'Tout est fait, bravo'}</h2></div>${ringSvg(nDone, items.length)}</div>
-      <div class="timeline">${items.length ? items.map(i => rowHtml(i, t, done, { today: true })).join('') : `<div class="empty">${ic('sparkle')}<br>Journée libre. Ajoute un rappel avec le bouton +.</div>`}</div>
-      <p class="small muted" style="margin-top:12px">Astuce : glisse un rappel vers la droite pour le valider, vers la gauche pour le décaler d’une heure.</p>
+      ${items.length ? dayTimeline(items, t, done, { today: true }) : `<div class="empty">${ic('sparkle')}<br>Journée libre. Ajoute un rappel avec le bouton +.</div>`}
+      <p class="small muted" style="margin-top:12px">Glisse un rappel vers la droite pour le valider, vers la gauche pour le décaler d’une heure.</p>
     </section>`;
 
     const lv = leaveFor(t), lvDone = new Set(S.leave[key(t)] || []);
@@ -740,15 +775,15 @@
       ${lv.some(x => x.ctx) ? '<p class="small muted" style="margin-top:12px">Entourés en ambre : ajoutés automatiquement selon la météo et ton planning du jour.</p>' : ''}
     </section>`;
 
-    return `<div class="grid-2"><div class="stack">${brief}${binCard}${timeline}${leave}</div><div class="stack">${weatherCard()}${countdownCard()}${infosCard()}${tipCard()}</div></div>`;
+    return `${glanceTiles()}<div class="grid-2"><div class="stack">${nowCard(items, done)}${timeline}${leave}</div><div class="stack">${brief}${weatherCard()}${countdownCard()}${infosCard()}${tipCard()}</div></div>`;
   }
   function weatherCard() {
     const w = U.wx;
-    if (!w) return `<section class="card"><span class="eyebrow">Météo</span><p class="muted" style="margin-top:8px">Chargement de la météo…</p></section>`;
+    if (!w) return `<section class="card" id="wx-card"><span class="eyebrow">Météo</span><p class="muted" style="margin-top:8px">Chargement de la météo…</p></section>`;
     const [icn, lab] = WX(w.now.code), nh = new Date().getHours(), tk = key(today());
     const hours = w.hours.filter(h => (h.date === tk && h.h >= nh) || h.date > tk).filter((_, i) => i % 2 === 0).slice(0, 6);
     const tips = wxTips('today').filter(x => !x.minor);
-    return `<section class="card">
+    return `<section class="card" id="wx-card">
       <div class="card-head"><div><span class="eyebrow">Météo · ${esc(city().name)}</span><h2>${lab}</h2></div>${w.live ? '<span class="tag ok">en direct</span>' : '<span class="tag example">exemple</span>'}</div>
       <div class="wx">${ic(icn, 'width:46px;height:46px;stroke-width:1.4')}<span class="wx-big"><span data-count="${w.now.t}">${w.now.t}</span>°</span>
         <div class="small muted">Max ${w.today.max}° · min ${w.today.min}°<br>Coucher du soleil ${w.today.sunset}</div></div>
@@ -785,9 +820,10 @@
   function viewCollectes() {
     const t = today(), nx = nextCollections(t, 21), p = S.profile;
     const first = nx.find(x => x.in > 0 || (x.in === 0 && new Date().getHours() < 9)) || nx[0];
-    const hero = first ? `<section class="card next-bin">${binSvg(first.bin.id, 76)}
+    const hero = first ? `<section class="card next-bin ${first && first.in === 1 && doneSet(t).has('b:' + first.bin.id) ? 'gone' : ''}">${binSvg(first.bin.id, 76)}
       <div style="min-width:0"><span class="eyebrow">Prochaine collecte</span><h2 style="font-size:26px;margin:6px 0 4px">${relDay(first.date)} · ${D.BIN_TYPES[first.bin.id].short.toLowerCase()}</h2>
-      <p class="small muted">${D.BIN_TYPES[first.bin.id].label}. ${first.in >= 1 ? `Sors le bac ${first.in === 1 ? 'ce soir' : `${DAY_NAMES[addDays(first.date, -1).getDay()]} soir`}, Tilt te prévient à ${p.briefs.evening}.` : 'Le camion passe ce matin.'}</p></div></section>` :
+      <p class="small muted">${D.BIN_TYPES[first.bin.id].label}. ${first.in >= 1 ? `Sors le bac ${first.in === 1 ? 'ce soir' : `${DAY_NAMES[addDays(first.date, -1).getDay()]} soir`}, Tilt te prévient à ${p.briefs.evening}.` : 'Le camion passe ce matin.'}</p>
+      ${first.in === 1 ? (doneSet(t).has('b:' + first.bin.id) ? `<span class="tag ok" style="margin-top:10px">${ic('check', 'width:12px;height:12px')} Bac sorti</span>` : `<button class="btn dark sm" style="margin-top:12px" data-act="binOut" data-id="b:${first.bin.id}">${ic('check')} C’est sorti</button>`) : ''}</div></section>` :
       `<section class="card"><p class="muted">Aucune collecte programmée. Ajoute tes jours ci-dessous.</p></section>`;
     const strip = `<section class="card"><div class="card-head"><div><span class="eyebrow">Les 14 prochains jours</span><h2>Calendrier</h2></div><span class="tag example">exemple à vérifier</span></div>
       <div class="days-strip">${Array.from({ length: 14 }, (_, i) => { const d = addDays(t, i), bs = binsOn(d), hol = holidayName(d);
@@ -797,12 +833,12 @@
     const search = `<section class="card"><div class="card-head"><div><span class="eyebrow">Guide du tri</span><h2>Où jeter ça ?</h2></div></div>
       <div class="search">${ic('search')}<input id="tri-q" type="search" placeholder="Pot de yaourt, piles, miroir…" autocomplete="off" aria-label="Rechercher un déchet"></div>
       <div class="results" id="tri-res">${triResults('')}</div></section>`;
-    const settings = `<section class="card"><div class="card-head"><div><span class="eyebrow">Mes bacs</span><h2>Jours de passage</h2></div></div>
+    const settings = `<section class="card"><div class="card-head"><div><span class="eyebrow">Mes bacs</span><h2>Jours de passage</h2></div><button class="btn sm" data-act="editBins">${U.editBins ? `${ic('check')} Terminé` : `${ic('sliders')} Modifier`}</button></div>
       ${(p.bins || []).map(b => { const T = D.BIN_TYPES[b.id]; return `<div class="bin-row">
         <span class="bin-swatch" style="background:${T.color};color:${binFg(b.id)}">${ic('trash')}</span>
         <div style="min-width:0"><strong>${T.label}</strong><div class="small muted">Bac ${T.short.toLowerCase()} · ${b.days.length ? WEEK.filter(d => b.days.includes(d)).map(d => DAY_NAMES[d]).join(', ') : 'aucun jour'}${b.freq === 'biweekly' ? ' · une semaine sur deux' : ''}</div></div>
-        <div class="weekdays">${WEEK.map(d => `<button class="${b.days.includes(d) ? 'on' : ''}" data-act="binDay" data-bin="${b.id}" data-day="${d}" aria-label="${DAY_NAMES[d]}">${DAY_LETTER[d]}</button>`).join('')}
-          <select data-set="binFreq" data-bin="${b.id}" aria-label="Fréquence"><option value="weekly" ${b.freq !== 'biweekly' ? 'selected' : ''}>Chaque semaine</option><option value="biweekly-even" ${b.freq === 'biweekly' && b.parity === 'even' ? 'selected' : ''}>Semaines paires</option><option value="biweekly-odd" ${b.freq === 'biweekly' && b.parity === 'odd' ? 'selected' : ''}>Semaines impaires</option></select></div>
+        ${!U.editBins ? '' : `<div class="weekdays">${WEEK.map(d => `<button class="${b.days.includes(d) ? 'on' : ''}" data-act="binDay" data-bin="${b.id}" data-day="${d}" aria-label="${DAY_NAMES[d]}">${DAY_LETTER[d]}</button>`).join('')}
+          <select data-set="binFreq" data-bin="${b.id}" aria-label="Fréquence"><option value="weekly" ${b.freq !== 'biweekly' ? 'selected' : ''}>Chaque semaine</option><option value="biweekly-even" ${b.freq === 'biweekly' && b.parity === 'even' ? 'selected' : ''}>Semaines paires</option><option value="biweekly-odd" ${b.freq === 'biweekly' && b.parity === 'odd' ? 'selected' : ''}>Semaines impaires</option></select></div>`}
       </div>`; }).join('')}
       <div class="bin-row"><span class="bin-swatch" style="background:var(--bin-verre)">${ic('glass')}</span><div><strong>Verre</strong><div class="small muted">${D.BIN_TYPES.verre.tip}</div></div></div>
       <p class="small muted" style="margin-top:6px">Les jours de ${esc(city().name)} sont des exemples. Corrige-les avec le calendrier officiel de ta commune, Tilt s’adapte tout de suite.</p>
@@ -862,8 +898,9 @@
     const seg = `<div class="seg" role="tablist"><span class="seg-ind" style="width:calc((100% - 8px) / ${segs.length});transform:translateX(${si * 100}%)"></span>${segs.map(([id, l]) => `<button class="${id === U.seg ? 'on' : ''}" data-act="seg" data-seg="${id}" role="tab" aria-selected="${id === U.seg}">${l}</button>`).join('')}</div>`;
     let body = '';
     if (U.seg === 'week') {
-      body = `<section class="card">${Array.from({ length: 7 }, (_, i) => { const d = addDays(today(), i), its = agendaFor(d), dn = doneSet(d);
-        return `<div class="day-group"><span class="eyebrow">${relDay(d)}${i > 1 ? '' : ' · ' + fmtShort(d)}${holidayName(d) ? ' · ' + holidayName(d) : ''}</span>${its.length ? `<div class="timeline">${its.map(it => rowHtml(it, d, dn, { today: i === 0 })).join('')}</div>` : '<p class="small muted" style="padding:6px">Rien de prévu.</p>'}</div>`; }).join('')}</section>`;
+      body = `<section class="card">${Array.from({ length: 7 }, (_, i) => { const d = addDays(today(), i), its = agendaFor(d), dn = doneSet(d), k = 'day-' + key(d), hol = holidayName(d);
+        const open = U.open.has(k) || (i < 2 && !U.closed.has(k));
+        return `<details class="day-group" data-k="${k}" ${open ? 'open' : ''}><summary><strong>${relDay(d)}</strong><span class="small muted">${i > 1 ? '' : fmtShort(d)}${hol ? (i > 1 ? '' : ' · ') + esc(hol) : ''}</span><span class="tl-n">${its.length ? plural(its.length, 'rappel') : 'libre'}</span></summary>${its.length ? dayTimeline(its, d, dn, { today: i === 0 }) : '<p class="small muted" style="padding:0 6px 12px">Rien de prévu.</p>'}</details>`; }).join('')}</section>`;
     } else if (U.seg === 'rec') {
       const rs = S.reminders.filter(r => r.rec.type !== 'once').slice().sort((a, b) => (nextOcc(a) || 0) - (nextOcc(b) || 0));
       const once = S.reminders.filter(r => r.rec.type === 'once' && parseKey(r.rec.date) >= today());
@@ -967,8 +1004,9 @@
   }
 
   /* ================= Feuilles (bottom sheets) ================= */
-  function openSheet(html, focusId) {
+  function openSheet(html, focusId, cls) {
     const sh = document.getElementById('sheet');
+    sh.className = 'sheet' + (cls ? ' ' + cls : '');
     sh.innerHTML = `<div class="grab"></div>${html}`;
     sh.scrollTop = 0;
     document.getElementById('scrim').classList.add('open');
@@ -1005,19 +1043,71 @@
     const when = r.rec.type === 'once' ? relDay(parseKey(r.rec.date)) : recLabel(r.rec);
     out.innerHTML = `<span class="tag">${ic(r.icon, 'width:12px;height:12px')} ${esc(r.title)}</span><span class="tag">${ic('calendar', 'width:12px;height:12px')} ${esc(when)}</span><span class="tag">${ic('clock', 'width:12px;height:12px')} ${r.time}</span>`;
   }
-  function quickAdd(inputId) {
-    const inp = document.getElementById(inputId);
-    const r = inp && parseQuick(inp.value);
-    if (!r) { if (inp) inp.focus(); return; }
-    const whoSel = document.getElementById('sheet-who');
-    const rem = { id: uid(), title: r.title, icon: r.icon, time: r.time, rec: r.rec, active: true, who: whoSel ? whoSel.value : 'me', custom: true, cat: 'Perso' };
-    S.reminders.push(rem); save();
-    inp.value = ''; parsePreview(inputId);
-    vibrate(10);
+  function addRem(text, who) {
+    const r = parseQuick(text); if (!r) return null;
+    const rem = { id: uid(), title: r.title, icon: r.icon, time: r.time, rec: r.rec, active: true, who: who || 'me', custom: true, cat: 'Perso' };
+    S.reminders.push(rem); save(); vibrate(10);
     const when = r.rec.type === 'once' ? relDay(parseKey(r.rec.date)).toLowerCase() : recLabel(r.rec).toLowerCase();
     toast(`Rappel ajouté : ${when} à ${r.time}`, () => { S.reminders = S.reminders.filter(x => x.id !== rem.id); save(); render(); });
+    return rem;
+  }
+  function quickAdd(inputId) {
+    const inp = document.getElementById(inputId);
+    if (!inp || !inp.value.trim()) { if (inp) inp.focus(); return; }
+    const whoSel = document.getElementById('sheet-who');
+    addRem(inp.value, whoSel ? whoSel.value : 'me');
+    inp.value = ''; parsePreview(inputId);
     if (inputId === 'sheet-q') closeSheet();
     render();
+  }
+
+  /* ================= Recherche globale ================= */
+  const SEARCH_PAGES = [
+    ['collectes', '', 'Collectes et poubelles', 'trash', 'poubelle collecte dechet bac tri dechetterie prochaine calendrier jaune grise marron verre'],
+    ['courses', '', 'Liste de courses', 'cart', 'courses liste magasin supermarche acheter boulangerie'],
+    ['rappels', 'week', 'Rappels de la semaine', 'bell', 'rappel semaine agenda planning'],
+    ['rappels', 'deadlines', 'Échéances', 'calendar', 'echeance compte a rebours controle technique assurance ferie vacances heure'],
+    ['rappels', 'ideas', 'Idées de rappels', 'sparkle', 'idees bibliotheque oublie'],
+    ['foyer', '', 'Réglages et foyer', 'users', 'foyer reglages theme sombre clair notification brief membres invitation ville questionnaire'],
+    ['today', '', 'Météo du jour', 'cloudSun', 'meteo pluie temperature soleil parapluie'],
+  ];
+  const sItem = o => {
+    const tag = o.href ? 'a' : o.act ? 'button' : 'div';
+    const col = o.color === 'var(--bin-emb)' ? 'var(--warn)' : o.color;
+    return `<${tag} class="s-item" ${o.act ? `data-act="${o.act}"` : ''} ${o.data || ''} ${o.href ? `href="${o.href}"` : ''}><span class="row-icon">${ic(o.icon)}</span><span class="s-text"><strong>${esc(o.title)}</strong>${o.sub ? `<span>${esc(o.sub)}</span>` : ''}</span>${o.right ? `<span class="s-right" ${col ? `style="color:${col}"` : ''}>${esc(o.right)}</span>` : o.act ? ic('chevR') : ''}</${tag}>`;
+  };
+  function searchResults(q) {
+    const n = norm(q.trim());
+    if (!n) return `<div class="s-group"><span class="eyebrow">Recherches rapides</span><div class="suggest">${['Prochaine collecte', 'Piles', 'Pharmacie', 'Lait', 'Contrôle technique', 'Brief', 'Médicaments'].map(x => `<button class="chip" data-act="fillSearch" data-v="${x}">${x}</button>`).join('')}</div></div>`;
+    const words = n.split(/\s+/);
+    const match = str => { const v = norm(str); return words.every(w => v.includes(w)); };
+    const groups = [];
+    const pg = SEARCH_PAGES.filter(([, , l, , kw]) => match(l + ' ' + kw));
+    if (pg.length) groups.push(['Aller à', pg.map(([tab, seg, l, icn]) => sItem({ icon: icn, title: l, act: 'searchGo', data: `data-tab="${tab}" data-seg="${seg}" ${tab === 'today' ? 'data-target="wx-card"' : ''}` }))]);
+    if (match('prochaine collecte poubelle')) { const nx = nextCollections(today())[0]; if (nx) groups.push(['Réponse', [sItem({ icon: 'trash', title: `${relDay(nx.date)} : bac ${D.BIN_TYPES[nx.bin.id].short.toLowerCase()}`, sub: D.BIN_TYPES[nx.bin.id].label, act: 'searchGo', data: 'data-tab="collectes"' })]]); }
+    const rems = S.reminders.filter(r => match(r.title)).slice(0, 5);
+    if (rems.length) groups.push(['Rappels', rems.map(r => { const nx = nextOcc(r); return sItem({ icon: r.icon, title: r.title, sub: `${recLabel(r.rec)} · ${r.time}${nx && r.active !== false ? ` · prochain : ${relDay(nx).toLowerCase()}` : ''}`, act: 'searchGo', data: 'data-tab="rappels" data-seg="rec"' }); })]);
+    const cds = countdowns().filter(c => match(c.title + ' ' + (c.note || ''))).slice(0, 4);
+    if (cds.length) groups.push(['Échéances', cds.map(c => sItem({ icon: c.icon, title: c.title, sub: `${c.in === 0 ? 'Aujourd’hui' : 'Dans ' + plural(c.in, 'jour')} · ${fmtShort(c.date)}`, act: 'searchGo', data: 'data-tab="rappels" data-seg="deadlines"' }))]);
+    const li = S.list.filter(i => match(i.name));
+    if (li.length) groups.push(['Liste de courses', li.map(i => sItem({ icon: 'cart', title: i.name, sub: i.got ? 'Déjà dans le caddie' : `À acheter · ${i.rayon}`, act: 'searchGo', data: 'data-tab="courses"' }))]);
+    const tri = D.TRI.filter(([nm]) => match(nm)).slice(0, 4);
+    if (tri.length) groups.push(['Où jeter ?', tri.map(([nm, dest, tip]) => sItem({ icon: 'recycle', title: nm, sub: tip, right: D.TRI_DEST[dest].label, color: D.TRI_DEST[dest].color }))]);
+    const st = (U.stores || []).filter(x => match(x.name + ' ' + x.kind)).slice(0, 4);
+    if (st.length) groups.push(['Magasins', st.map(x => { const o = openStatus(x.hours); return sItem({ icon: KIND_ICON[x.kind] || 'store', title: x.name, sub: `${o.label} · ${fmtDist(x.dist)}`, act: 'searchGo', data: 'data-tab="courses"' }); })]);
+    const nums = D.USEFUL_NUMBERS.filter(([l, num]) => match(l) || num.startsWith(n));
+    if (nums.length) groups.push(['Numéros utiles', nums.map(([l, num]) => sItem({ icon: 'phone', title: l, right: num, href: `tel:${num}` }))]);
+    const pq = parseQuick(q);
+    groups.push(['Actions', [
+      sItem({ icon: 'plus', title: `Ajouter « ${cap(q.trim())} » à la liste`, act: 'searchAddItem', data: `data-v="${esc(q.trim())}"` }),
+      sItem({ icon: 'bell', title: `Créer le rappel « ${pq.title} »`, sub: `${pq.rec.type === 'once' ? relDay(parseKey(pq.rec.date)) : recLabel(pq.rec)} · ${pq.time}`, act: 'searchAddRem', data: `data-v="${esc(q.trim())}"` }),
+    ]]);
+    return groups.map(([t, its]) => `<div class="s-group"><span class="eyebrow">${t}</span>${its.join('')}</div>`).join('');
+  }
+  function openSearch() {
+    openSheet(`<h2>Rechercher</h2><p class="small muted">Un rappel, un déchet, un magasin, un article de ta liste…</p>
+      <div class="search" style="margin-top:14px">${ic('search')}<input id="search-q" type="search" placeholder="Ex. piles, lait, dentiste" autocomplete="off" aria-label="Rechercher dans Tilt"></div>
+      <div id="search-res">${searchResults('')}</div>`, 'search-q', 'top');
   }
 
   /* ================= Actions ================= */
@@ -1038,6 +1128,7 @@
       updateBadges();
       if (items.length && nd === items.length && i < 0) toast('Journée bouclée. Tu peux souffler.');
     }
+    clearTimeout(U.reflow); U.reflow = setTimeout(() => { if (!document.querySelector('.sheet.open')) render(); }, 700);
   }
   function snooze(row) {
     const id = row.dataset.id, k = row.dataset.day;
@@ -1053,7 +1144,17 @@
     goSeg: el => { U.tab = 'rappels'; U.seg = el.dataset.seg; U.enter = true; render(); window.scrollTo({ top: 0 }); },
     toggleDone: el => toggleDone(el.closest('.row')),
     snooze: el => snooze(el.closest('.row')),
-    binOut: el => { const row = document.querySelector(`.row[data-id="${el.dataset.id}"]`); const k = key(today()); S.done[k] = S.done[k] || []; if (!S.done[k].includes(el.dataset.id)) S.done[k].push(el.dataset.id); save(); vibrate([10, 30, 10]); document.getElementById('bin-card').classList.add('done'); el.disabled = true; el.innerHTML = `${ic('check')} Bac sorti`; el.classList.remove('dark'); if (row) row.classList.add('is-done'); setTimeout(() => render(), 950); toast('Bac sorti. Tilt te rappellera de le rentrer demain.'); },
+    nowDone: el => { const c = el.closest('.now-card'); c.classList.add('leaving'); toggleDone(c); },
+    nowSnooze: el => snooze(el.closest('.now-card')),
+    scrollTo: el => { if (U.tab !== 'today') { U.tab = 'today'; U.enter = false; render(); } const t = document.getElementById(el.dataset.target); if (!t) return; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); },
+    briefMore: () => { U.briefOpen = !U.briefOpen; const b = document.querySelector('.brief'); b.classList.toggle('expanded', U.briefOpen); render(); },
+    editBins: () => { U.editBins = !U.editBins; render(); },
+    openSearch: () => openSearch(),
+    fillSearch: el => { const i = document.getElementById('search-q'); i.value = el.dataset.v; document.getElementById('search-res').innerHTML = searchResults(i.value); i.focus(); },
+    searchGo: el => { closeSheet(); U.tab = el.dataset.tab; try { history.replaceState(null, '', '#' + U.tab); } catch (e) { /* ignore */ } if (el.dataset.seg) U.seg = el.dataset.seg; U.enter = true; render(); window.scrollTo({ top: 0 }); if (el.dataset.target) setTimeout(() => actions.scrollTo(el), 250); },
+    searchAddItem: el => { closeSheet(); addItem(el.dataset.v); toast(`${cap(el.dataset.v)} ajouté à la liste`); },
+    searchAddRem: el => { closeSheet(); addRem(el.dataset.v, 'me'); render(); },
+    binOut: el => { const row = document.querySelector(`.row[data-id="${el.dataset.id}"]`); const k = key(today()); S.done[k] = S.done[k] || []; if (!S.done[k].includes(el.dataset.id)) S.done[k].push(el.dataset.id); save(); vibrate([10, 30, 10]); const card = el.closest('.bin-card, .next-bin'); if (card) card.classList.add('done'); el.disabled = true; el.innerHTML = `${ic('check')} Bac sorti`; el.classList.remove('dark'); if (row) row.classList.add('is-done'); setTimeout(() => render(), 950); toast('Bac sorti. Tilt te rappellera de le rentrer demain.'); },
     leave: el => { const k = key(today()), arr = S.leave[k] = S.leave[k] || [], v = el.dataset.k, i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else { arr.push(v); vibrate(8); } save(); el.classList.toggle('on', i < 0); const all = leaveFor(today()); const n = all.filter(x => arr.includes(x.l)).length; const c = document.getElementById('leave-count'); if (c) c.textContent = `${n}/${all.length}`; if (n === all.length && i < 0) toast('C’est bon, tu peux y aller.'); },
     speak: () => speak(),
     previewBrief: el => previewBrief(el.dataset.type),
@@ -1114,10 +1215,12 @@
     const t = e.target;
     if (t.id === 'tri-q') document.getElementById('tri-res').innerHTML = triResults(t.value);
     if (t.id === 'quick-q' || t.id === 'sheet-q') parsePreview(t.id);
+    if (t.id === 'search-q') document.getElementById('search-res').innerHTML = searchResults(t.value);
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.target.id === 'quick-q' || e.target.id === 'sheet-q')) { e.preventDefault(); quickAdd(e.target.id); }
     if (e.key === 'Escape' && document.querySelector('.sheet.open')) closeSheet();
+    if (e.key === '/' && S && !U.ob && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && !document.querySelector('.sheet.open')) { e.preventDefault(); openSearch(); }
   });
   document.addEventListener('change', e => {
     const t = e.target; if (!t.dataset.set || !S) return;
@@ -1127,6 +1230,12 @@
     save(); render();
   });
   document.addEventListener('focusout', () => { setTimeout(() => { if (U.pendingRender && !document.querySelector('.sheet.open') && !(document.activeElement && /INPUT|SELECT/.test(document.activeElement.tagName))) { U.pendingRender = false; render(); } }, 50); });
+
+  // Mémorise les sections repliées / dépliées entre deux rendus
+  document.addEventListener('toggle', e => {
+    const k = e.target.dataset && e.target.dataset.k; if (!k) return;
+    if (e.target.open) { U.open.add(k); U.closed.delete(k); } else { U.open.delete(k); U.closed.add(k); }
+  }, true);
 
   /* Glisser un rappel : droite = fait, gauche = +1 h */
   let drag = null;

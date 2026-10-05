@@ -5,10 +5,11 @@ Prototype d'application mobile (PWA installable) qui prévient chaque foyer **au
 ## Ce que fait le prototype
 
 - **Questionnaire d'accueil (2 min)** : prénom, ville (ou géolocalisation), jours de collecte, foyer (couple, enfants et leurs activités, chien, chat, plantes, voiture), rythme (réveil, coucher, télétravail), courses, sport, traitement, heures des briefs. Tilt génère ensuite les rappels adaptés.
-- **Aujourd'hui** : brief du matin ou du soir (lisible à voix haute), poubelle à sortir ce soir, timeline de la journée (glisser à droite = fait, à gauche = +1 h), check-list « avant de sortir » qui s'adapte à la météo et au planning (parapluie, sac de piscine, badge…), météo heure par heure avec conseils, comptes à rebours (échéances, changement d'heure, jours fériés, vacances scolaires), infos utiles (pharmacie, magasin ouvert, déchetterie).
+- **Aujourd'hui** : 4 tuiles « coup d'œil » (poubelle, météo, courses, prochaine échéance) qui mènent au détail, carte « Prochaine étape » avec compte à rebours, journée rangée Matin / Après-midi / Soir (les tâches faites se replient), brief du matin ou du soir (lisible à voix haute), poubelle à sortir ce soir, timeline de la journée (glisser à droite = fait, à gauche = +1 h), check-list « avant de sortir » qui s'adapte à la météo et au planning (parapluie, sac de piscine, badge…), météo heure par heure avec conseils, comptes à rebours (échéances, changement d'heure, jours fériés, vacances scolaires), infos utiles (pharmacie, magasin ouvert, déchetterie).
 - **Collectes** : prochaine collecte, calendrier 14 jours avec jours fériés, réglage des jours par bac (semaines paires/impaires), guide « Où jeter ça ? ».
 - **Courses** : liste partagée classée par rayon, suggestions de rachat d'après tes habitudes, magasins à proximité avec statut ouvert/fermé et favori.
 - **Rappels** : saisie en langage naturel (« appeler maman dimanche 18h », « tous les lundis sortir le chien à 7h30 »), vue semaine, rappels récurrents, échéances avec relances J-30/J-7/J-1, bibliothèque de rappels qu'on oublie toujours.
+- **Recherche globale** (loupe, ou touche « / » sur ordinateur) : rappels, échéances, liste de courses, tri des déchets, magasins, numéros utiles, avec actions rapides (ajouter à la liste, créer un rappel).
 - **Foyer** : membres, code d'invitation, réglage des briefs, notifications du téléphone, thème clair/sombre, numéros utiles.
 
 ## Données
