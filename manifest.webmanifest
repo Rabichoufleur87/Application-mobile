@@ -1,0 +1,22 @@
+{
+  "name": "Marge · ton reste à vivre du jour",
+  "short_name": "Marge",
+  "description": "Finances personnelles automatisées : reste à vivre du jour, catégorisation automatique et chasse aux abonnements.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F4F8",
+  "theme_color": "#14152B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Abonnements", "url": "./index.html#abos" },
+    { "name": "Opérations", "url": "./index.html#ops" }
+  ]
+}
