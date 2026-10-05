@@ -1,0 +1,22 @@
+{
+  "name": "Élan · ton coach d'habitudes",
+  "short_name": "Élan",
+  "description": "Un programme de 4 semaines sur mesure, des micro-habitudes et un coach IA qui te connaît.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EDF1EE",
+  "theme_color": "#12201B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Session focus", "url": "./index.html#focus" },
+    { "name": "Parler au coach", "url": "./index.html#coach" }
+  ]
+}
